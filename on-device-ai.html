@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>on-device // local ai</title>
+<style>
+  :root{
+    --bg:#0a0e0f;
+    --panel:#11161a;
+    --panel2:#0d1214;
+    --border:#1f2a27;
+    --text:#d8e3e0;
+    --muted:#6b7d78;
+    --accent:#39ff88;
+    --accent-dim:#1f7d49;
+    --warn:#ff6b3d;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg);color:var(--text);font-family:var(--sans);
+    font-size:14px;line-height:1.5;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:18px 16px 50px;}
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:10px 0 16px;border-bottom:1px solid var(--border);margin-bottom:18px;
+  }
+  header h1{font-family:var(--mono);font-size:15px;font-weight:600;margin:0;letter-spacing:.5px;}
+  header h1 span{color:var(--accent);}
+  .status{font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:6px;color:var(--muted);text-align:right;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex-shrink:0;}
+  .dot.online{background:var(--accent);}
+  @media (prefers-reduced-motion: no-preference){
+    .dot.online{animation:pulse 2s infinite;}
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(57,255,136,.45);}
+    70%{box-shadow:0 0 0 6px rgba(57,255,136,0);}
+    100%{box-shadow:0 0 0 0 rgba(57,255,136,0);}
+  }
+
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:14px;}
+  .panel-title{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin:0 0 10px;}
+
+  select, button{
+    font-family:var(--mono);font-size:13px;
+  }
+  select{
+    width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    padding:10px 10px;border-radius:4px;outline:none;
+  }
+  select:focus{border-color:var(--accent);}
+
+  .row{display:flex;gap:8px;margin-top:10px;}
+  button{
+    background:var(--accent);color:#04140a;border:none;border-radius:4px;
+    padding:10px 16px;cursor:pointer;font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:12px;
+  }
+  button:hover{background:#5dffa3;}
+  button:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+  button:focus-visible, select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px 14px;}
+  button.ghost:hover{border-color:var(--accent);color:var(--accent);}
+
+  .bar-wrap{margin-top:12px;display:none;}
+  .bar-wrap.show{display:block;}
+  .bar-track{height:8px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+  .bar-fill{height:100%;background:var(--accent);width:0%;transition:width .2s linear;}
+  .bar-label{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:6px;word-break:break-word;}
+
+  .warn-box{
+    background:rgba(255,107,61,.08);border:1px solid var(--warn);border-radius:6px;
+    padding:12px 14px;font-family:var(--mono);font-size:12px;color:#ffb497;margin-bottom:14px;display:none;
+  }
+  .warn-box.show{display:block;}
+
+  .chat-log{
+    background:var(--panel2);border:1px solid var(--border);border-radius:4px;
+    padding:12px;display:flex;flex-direction:column;gap:10px;
+    min-height:280px;max-height:50vh;overflow-y:auto;
+  }
+  .msg{max-width:88%;padding:8px 11px;border-radius:6px;font-size:13px;white-space:pre-wrap;}
+  .msg.user{align-self:flex-end;background:var(--accent-dim);color:#eafff2;}
+  .msg.assistant{align-self:flex-start;background:#161d20;border:1px solid var(--border);}
+  .msg.assistant.pending::after{content:"▌";opacity:.6;}
+  .chat-input-row{display:flex;gap:8px;margin-top:10px;}
+  .chat-input-row textarea{
+    flex:1;resize:none;background:var(--panel2);border:1px solid var(--border);color:var(--text);
+    font-family:var(--sans);font-size:14px;padding:10px 12px;border-radius:4px;outline:none;height:42px;
+  }
+  .chat-input-row textarea:focus{border-color:var(--accent);}
+  .empty-hint{font-family:var(--mono);font-size:12px;color:var(--muted);margin:0;}
+
+  footer{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:24px;line-height:1.7;}
+  footer code{background:var(--panel2);padding:1px 5px;border-radius:3px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>on<span>-</span>device</h1>
+    <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">checking device…</span></div>
+  </header>
+
+  <div class="warn-box" id="warnBox"></div>
+
+  <div class="panel">
+    <p class="panel-title">Model (runs entirely on this device, no internet after download)</p>
+    <select id="modelSelect"><option>loading model list…</option></select>
+    <div class="row">
+      <button id="loadBtn" disabled>Load model</button>
+      <button class="ghost" id="unloadBtn" disabled>Unload</button>
+    </div>
+    <div class="bar-wrap" id="barWrap">
+      <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+      <div class="bar-label" id="barLabel">—</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="panel-title">Chat <span id="activeLabel" style="color:var(--muted);text-transform:none;letter-spacing:0;"></span></p>
+    <div class="chat-log" id="chatLog"><p class="empty-hint">Load a model above to start.</p></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput" placeholder="Message the local model…" disabled></textarea>
+      <button id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+
+  <footer>
+    First load downloads the model weights once (a few hundred MB for the small ones) and caches them in the browser — after that it works fully offline. Needs <strong style="color:var(--text);">iOS 26+</strong> for WebGPU in Safari. Smaller models (marked ★ below) are the ones realistic to run on an iPhone; bigger ones may run out of memory and crash the tab. Tip: use Safari's "Add to Home Screen" to keep this like an app.
+  </footer>
+
+</div>
+
+<script type="module">
+import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+const els = {
+  statusDot: document.getElementById('statusDot'),
+  statusText: document.getElementById('statusText'),
+  warnBox: document.getElementById('warnBox'),
+  modelSelect: document.getElementById('modelSelect'),
+  loadBtn: document.getElementById('loadBtn'),
+  unloadBtn: document.getElementById('unloadBtn'),
+  barWrap: document.getElementById('barWrap'),
+  barFill: document.getElementById('barFill'),
+  barLabel: document.getElementById('barLabel'),
+  activeLabel: document.getElementById('activeLabel'),
+  chatLog: document.getElementById('chatLog'),
+  chatInput: document.getElementById('chatInput'),
+  sendBtn: document.getElementById('sendBtn'),
+};
+
+let engine = null;
+let chatHistory = [];
+let loadedModelId = null;
+
+function warn(msg){
+  els.warnBox.textContent = msg;
+  els.warnBox.classList.add('show');
+}
+
+async function checkWebGPU(){
+  if(!('gpu' in navigator)){
+    return { ok:false, reason:'This browser has no WebGPU support. On iPhone you need iOS 26 or later with Safari.' };
+  }
+  try{
+    const adapter = await navigator.gpu.requestAdapter();
+    if(!adapter) return { ok:false, reason:'WebGPU is present but no compatible GPU adapter was found.' };
+    return { ok:true };
+  }catch(e){
+    return { ok:false, reason: 'WebGPU check failed: ' + e.message };
+  }
+}
+
+function populateModels(){
+  const list = (webllm.prebuiltAppConfig?.model_list || [])
+    .slice()
+    .sort((a,b) => (a.vram_required_MB||9999) - (b.vram_required_MB||9999));
+
+  els.modelSelect.innerHTML = '';
+  list.forEach(m => {
+    const opt = document.createElement('option');
+    const mb = m.vram_required_MB;
+    const sizeLabel = mb ? `${(mb/1024).toFixed(1)}GB` : '?';
+    const star = mb && mb < 1600 ? '★ ' : '';
+    opt.value = m.model_id;
+    opt.textContent = `${star}${m.model_id}  (~${sizeLabel})`;
+    els.modelSelect.appendChild(opt);
+  });
+}
+
+function addMsg(role, text){
+  if(els.chatLog.querySelector('.empty-hint')) els.chatLog.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  els.chatLog.appendChild(div);
+  els.chatLog.scrollTop = els.chatLog.scrollHeight;
+  return div;
+}
+
+async function loadModel(){
+  const modelId = els.modelSelect.value;
+  if(!modelId) return;
+  els.loadBtn.disabled = true;
+  els.modelSelect.disabled = true;
+  els.barWrap.classList.add('show');
+  els.barFill.style.width = '0%';
+  els.barLabel.textContent = 'starting…';
+
+  try{
+    if(!engine){
+      engine = new webllm.MLCEngine({
+        initProgressCallback: (p) => {
+          const pct = Math.round((p.progress||0)*100);
+          els.barFill.style.width = pct + '%';
+          els.barLabel.textContent = p.text || (pct + '%');
+        }
+      });
+    }
+    await engine.reload(modelId);
+    loadedModelId = modelId;
+    chatHistory = [];
+    els.chatLog.innerHTML = '';
+    els.activeLabel.textContent = '— ' + modelId;
+    els.chatInput.disabled = false;
+    els.sendBtn.disabled = false;
+    els.unloadBtn.disabled = false;
+    els.barLabel.textContent = 'ready.';
+  }catch(e){
+    warn('Load failed: ' + e.message + ' — try a smaller model (★ marked ones).');
+    els.barLabel.textContent = 'failed.';
+  }finally{
+    els.loadBtn.disabled = false;
+    els.modelSelect.disabled = false;
+  }
+}
+
+async function unloadModel(){
+  if(!engine) return;
+  try{ await engine.unload(); }catch(e){}
+  loadedModelId = null;
+  chatHistory = [];
+  els.chatLog.innerHTML = '<p class="empty-hint">Load a model above to start.</p>';
+  els.activeLabel.textContent = '';
+  els.chatInput.disabled = true;
+  els.sendBtn.disabled = true;
+  els.unloadBtn.disabled = true;
+  els.barWrap.classList.remove('show');
+}
+
+async function sendChat(){
+  const text = els.chatInput.value.trim();
+  if(!text || !engine || !loadedModelId) return;
+  els.chatInput.value = '';
+  addMsg('user', text);
+  chatHistory.push({ role:'user', content:text });
+
+  const pending = addMsg('assistant', '');
+  pending.classList.add('pending');
+  els.sendBtn.disabled = true;
+
+  try{
+    const stream = await engine.chat.completions.create({
+      messages: chatHistory,
+      stream: true,
+    });
+    let full = '';
+    for await (const chunk of stream){
+      const delta = chunk.choices?.[0]?.delta?.content || '';
+      full += delta;
+      pending.textContent = full;
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    }
+    pending.classList.remove('pending');
+    chatHistory.push({ role:'assistant', content: full });
+  }catch(e){
+    pending.classList.remove('pending');
+    pending.textContent = 'error: ' + e.message;
+  }finally{
+    els.sendBtn.disabled = false;
+  }
+}
+
+els.loadBtn.onclick = loadModel;
+els.unloadBtn.onclick = unloadModel;
+els.sendBtn.onclick = sendChat;
+els.chatInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendChat(); }
+});
+
+(async () => {
+  const gpu = await checkWebGPU();
+  if(gpu.ok){
+    els.statusDot.classList.add('online');
+    els.statusText.textContent = 'WebGPU ready';
+    els.loadBtn.disabled = false;
+  }else{
+    els.statusText.textContent = 'WebGPU unavailable';
+    warn(gpu.reason);
+  }
+  populateModels();
+})();
+</script>
+</body>
+</html>
